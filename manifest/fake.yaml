@@ -1,0 +1,8 @@
+apiVersion:  miniooperator.3xpl0it3r.cn/v1alpha1
+kind: Minio
+metadata:
+  name: minio
+spec:
+  replicas: 4
+  image: "minio/minio"
+  hostpath: "/data/minio"

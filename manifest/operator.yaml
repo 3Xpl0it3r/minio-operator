@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clickpaas-sa
+  namespace: default
+
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: clickpaas
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: clickpaas
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clickpaas
+subjects:
+  - kind: ServiceAccount
+    name: clickpaas-sa
+    namespace: default
+--- 
+apiVersion:  apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: clickpaas-operator-minio
+  name: clickpaas-operator-minio
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickpaas-operator-minio
+  template:
+    metadata:
+      labels:
+        app: clickpaas-operator-minio
+    spec:
+      containers:
+      - name: clickpaas-operator-minio
+        image: miniooperator
+        imagePullPolicy: IfNotPresent
+        resources: {}
+      restartPolicy: Always
+      serviceAccount: clickpaas-sa
