@@ -115,6 +115,7 @@ func (c *controller) Start(worker int, stopCh <-chan struct{}) error {
 	}) {
 		return fmt.Errorf("timeout wait for cache to be synced")
 	}
+	klog.Infof("All Informer has all synced, Controller Begin to start worker")
 	for i := 0; i < worker; i++ {
 		go wait.Until(c.runWorker, time.Second, stopCh)
 	}
@@ -124,6 +125,7 @@ func (c *controller) Start(worker int, stopCh <-chan struct{}) error {
 
 // runWorker for loop
 func (c *controller) runWorker() {
+	klog.Infof("Worker begin to work")
 	defer utilruntime.HandleCrash()
 	for c.processNextItem() {
 	}
@@ -139,7 +141,7 @@ func (c *controller) processNextItem() bool {
 	}()
 	if err := c.operator.Reconcile(obj); err != nil {
 		c.queue.AddRateLimited(obj)
-		utilruntime.HandleError(fmt.Errorf("failed to sync SparkApplication %q: %v", obj, err))
+		utilruntime.HandleError(err)
 	}
 	c.queue.Forget(obj)
 	return true

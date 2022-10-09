@@ -10,9 +10,9 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: clickpaas
 rules:
-  - apiGroups: ["*"]
-    resources: ["*"]
-    verbs: ["*"]
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "services"]
+    verbs: ["get", "delete", "update", "list"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

@@ -45,14 +45,21 @@ func NewMinioResourceDefine() *extensionapiv1.CustomResourceDefinition {
 									Properties: map[string]extensionapiv1.JSONSchemaProps{
 										"replicas": {Type: jsonSchemePropsTypeAsInteger},
 										"image":    {Type: jsonSchemePropsTypeAsString},
-										"hostpath":    {Type: jsonSchemePropsTypeAsString},
+										"hostpath": {Type: jsonSchemePropsTypeAsString},
+									},
+								},
+								"status": {
+									Type: jsonSchemePropsTypeAsObject,
+									Properties: map[string]extensionapiv1.JSONSchemaProps{
 									},
 								},
 							},
 							Required: []string{"apiVersion", "kind", "metadata", "spec"},
 						},
 					},
-					Subresources:             &extensionapiv1.CustomResourceSubresources{},
+					Subresources: &extensionapiv1.CustomResourceSubresources{
+						Status: &extensionapiv1.CustomResourceSubresourceStatus{},
+					},
 				},
 			},
 			PreserveUnknownFields: false,

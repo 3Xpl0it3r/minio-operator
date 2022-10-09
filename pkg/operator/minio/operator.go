@@ -16,7 +16,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	apicorev1 "k8s.io/api/core/v1"
 	k8serror "k8s.io/apimachinery/pkg/api/errors"
@@ -26,7 +28,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/klog/v2"
 
 	crapiv1alpha1 "github.com/3Xpl0it3r/minio-operator/pkg/apis/miniooperator.3xpl0it3r.cn/v1alpha1"
 	crclientset "github.com/3Xpl0it3r/minio-operator/pkg/client/clientset/versioned"
@@ -47,9 +48,9 @@ type operator struct {
 	nodeLister    listercorev1.NodeLister
 }
 
-func NewOperator(kubeClientSet kubernetes.Interface, crClient crclientset.Interface, podLister listercorev1.PodLister, serviceLister listercorev1.ServiceLister, nodeLister listercorev1.NodeLister, minioLister crlisterv1alpha1.MinioLister, recorder record.EventRecorder, reg prometheus.Registerer) croperator.Operator {
+func NewOperator(kubeClientSet kubernetes.Interface, crClientSet crclientset.Interface, podLister listercorev1.PodLister, serviceLister listercorev1.ServiceLister, nodeLister listercorev1.NodeLister, minioLister crlisterv1alpha1.MinioLister, recorder record.EventRecorder, reg prometheus.Registerer) croperator.Operator {
 	return &operator{
-		minioClient:   crClient,
+		minioClient:   crClientSet,
 		minioLister:   minioLister,
 		reg:           reg,
 		kubeClientSet: kubeClientSet,
@@ -72,14 +73,13 @@ func (o *operator) Reconcile(object interface{}) error {
 		if k8serror.IsNotFound(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("%s/%s get minio failed %v", namespace, name, err)
 	}
 	// defaulter
 	crapiv1alpha1.MinioDefaulter(minio)
 	nodeListItems, err := o.nodeLister.List(labels.Everything())
 	if err != nil {
-		klog.Errorf("List Nodes Failed, Err: %v", err)
-		return err
+		return fmt.Errorf("%s/%s list all node failed, %s", namespace, name, err)
 	}
 	nodes := []string{}
 	for _, nodeItem := range nodeListItems {
@@ -93,31 +93,34 @@ func (o *operator) Reconcile(object interface{}) error {
 		}
 	}
 	// if only has one node in kubernetes cluster, then we set replicas of minio to 1
-	if len(nodes) == 1 {
+	/* if len(nodes) == 1 {
 		minio.Spec.Replicas = 1
-	}
+	} */
 	// sync Service
 	if _, err := o.syncService(minio); err != nil {
-		return err
+		return fmt.Errorf("%s/%s sync service failed %s", namespace, name, err)
 	}
 	// sync pods
-	if _, err := o.syncPods(minio, nodes); err != nil {
-		return err
-	}
-
-	return nil
+    _, shouldUpdate, err := o.syncPods(minio, nodes)
+    if shouldUpdate {
+        if _,e := o.minioClient.MiniooperatorV1alpha1().Minios(namespace).Update(context.TODO(), minio, metav1.UpdateOptions{});e != nil {
+            err = errors.Wrapf(err, "update minio %s/%s alse failed %v ",namespace, name, e) 
+        }
+    }
+    return err
 }
 
 // operator represent operator
-func (o *operator) syncPods(minio *crapiv1alpha1.Minio, allNodes []string) ([]*apicorev1.Pod, error) {
-	nodeResPoll := make(map[int][]string, 1024) //
+func (o *operator) syncPods(minio *crapiv1alpha1.Minio, allNodes []string) ([]*apicorev1.Pod,  bool, error) {
+	nodeResPoll := make(map[int][]string, 64) //
 	nodeResPoll[0] = allNodes
 	podShoudCreate := []string{}
+	crIsUpdate := false
 	for index := 0; index < int(minio.Spec.Replicas); index++ {
 		pod, err := o.podLister.Pods(minio.GetNamespace()).Get(getPodName(index, minio))
 		if err != nil {
 			if !k8serror.IsNotFound(err) {
-				return nil, err
+				return nil,  crIsUpdate, err
 			}
 			podShoudCreate = append(podShoudCreate, getPodName(index, minio))
 			continue
@@ -128,11 +131,18 @@ func (o *operator) syncPods(minio *crapiv1alpha1.Minio, allNodes []string) ([]*a
 	}
 	// create some pods if necessary
 	for _, podName := range podShoudCreate {
-		if _, err := o.kubeClientSet.CoreV1().Pods(minio.GetNamespace()).Create(context.TODO(), newPod(podName, minio, nodeNameForSchedulePod(nodeResPoll)), metav1.CreateOptions{}); err != nil {
-			return nil, err
+        crIsUpdate = true
+		pickedNode := nodeNameForSchedulePod(podName, minio, nodeResPoll)
+		pod, err := o.kubeClientSet.CoreV1().Pods(minio.GetNamespace()).Create(context.TODO(), newPod(podName, minio, pickedNode), metav1.CreateOptions{})
+		if err != nil {
+			return nil,  crIsUpdate, err
 		}
+		if err := o.waitForPodReady(pod, 30*time.Second); err != nil {
+			return nil,  crIsUpdate, err
+		}
+        minio.Annotations[podName] = pickedNode
 	}
-	return nil, nil
+	return nil,  crIsUpdate, nil
 }
 
 // operator represent operator
@@ -183,7 +193,49 @@ func (o *operator) getAllReadyPodsAndRemoveUnReady(pods []*apicorev1.Pod) ([]*ap
 	return readyPods, nil
 }
 
-func nodeNameForSchedulePod(nodes map[int][]string) string {
+// wait for all pod ready
+func (o *operator) waitForPodReady(pod *apicorev1.Pod, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
+	defer cancel()
+	ready := make(chan struct{}, 0)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			latestPod, err := o.podLister.Pods(pod.GetNamespace()).Get(pod.GetName())
+			if err != nil {
+				continue
+			}
+			for _, condition := range latestPod.Status.Conditions {
+				switch condition.Type {
+				case apicorev1.PodReady:
+					if condition.Status == apicorev1.ConditionTrue {
+						ready <- struct{}{}
+					}
+				}
+			}
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("Timeout wait for pod %s ready", pod.GetName())
+	case <-ready:
+		return nil
+	}
+}
+
+func nodeNameForSchedulePod(podName string, minio *crapiv1alpha1.Minio, nodes map[int][]string) string {
+	// if pod has be created, then it has be deleted for some unexpected reason, so in this case ,the pod and node map has been write into the status of minio
+	// we should get restaore this
+	picked, ok := minio.GetAnnotations()[podName]
+	if ok {
+		updateNodeAllocatedInfo(nodes, picked)
+		return picked
+	}
+	// new pod, has not create before
 	for level := 0; level < len(nodes); level++ {
 		if len(nodes[level]) == 0 {
 			continue

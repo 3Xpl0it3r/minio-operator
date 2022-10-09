@@ -32,7 +32,6 @@ type Minio struct {
 
 // MinioSpec describes the specification of Minio applications using kubernetes as a cluster manager
 type MinioSpec struct {
-	// todo, write your code
 	Replicas int32  `json:"replicas"`
 	Image    string `json:"image"`
 	HostPath string `json:"hostpath"`
@@ -40,7 +39,6 @@ type MinioSpec struct {
 
 // MinioStatus describes the current status of Minio applications
 type MinioStatus struct {
-	// todo, write your code
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
