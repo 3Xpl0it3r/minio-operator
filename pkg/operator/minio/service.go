@@ -19,12 +19,12 @@ func newService(minio *crapiv1alpha1.Minio) *apicorev1.Service {
 		Spec: apicorev1.ServiceSpec{
 			Ports: []apicorev1.ServicePort{
 				{
-					Name:       "http",
+					Name:       "api",
 					Port:       9000,
 					TargetPort: intstr.IntOrString{IntVal: 9000},
 				},
 				{
-					Name:       "api",
+					Name:       "http",
 					Port:       9001,
 					TargetPort: intstr.IntOrString{IntVal: 9001},
 				},

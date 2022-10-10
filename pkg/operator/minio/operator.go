@@ -93,25 +93,25 @@ func (o *operator) Reconcile(object interface{}) error {
 		}
 	}
 	// if only has one node in kubernetes cluster, then we set replicas of minio to 1
-	/* if len(nodes) == 1 {
+	if len(nodes) == 1 {
 		minio.Spec.Replicas = 1
-	} */
+	}
 	// sync Service
 	if _, err := o.syncService(minio); err != nil {
 		return fmt.Errorf("%s/%s sync service failed %s", namespace, name, err)
 	}
 	// sync pods
-    _, shouldUpdate, err := o.syncPods(minio, nodes)
-    if shouldUpdate {
-        if _,e := o.minioClient.MiniooperatorV1alpha1().Minios(namespace).Update(context.TODO(), minio, metav1.UpdateOptions{});e != nil {
-            err = errors.Wrapf(err, "update minio %s/%s alse failed %v ",namespace, name, e) 
+	_, shoudUpdate, err := o.syncPods(minio, nodes)
+	if shoudUpdate {
+		if _, e := o.minioClient.MiniooperatorV1alpha1().Minios(namespace).Update(context.TODO(), minio, metav1.UpdateOptions{}); e!= nil {
+            return errors.Wrapf(err, "update minio'anno failed: %v", e)
         }
-    }
+	}
     return err
 }
 
 // operator represent operator
-func (o *operator) syncPods(minio *crapiv1alpha1.Minio, allNodes []string) ([]*apicorev1.Pod,  bool, error) {
+func (o *operator) syncPods(minio *crapiv1alpha1.Minio, allNodes []string) ([]*apicorev1.Pod, bool, error) {
 	nodeResPoll := make(map[int][]string, 64) //
 	nodeResPoll[0] = allNodes
 	podShoudCreate := []string{}
@@ -120,7 +120,7 @@ func (o *operator) syncPods(minio *crapiv1alpha1.Minio, allNodes []string) ([]*a
 		pod, err := o.podLister.Pods(minio.GetNamespace()).Get(getPodName(index, minio))
 		if err != nil {
 			if !k8serror.IsNotFound(err) {
-				return nil,  crIsUpdate, err
+				return nil, crIsUpdate, err
 			}
 			podShoudCreate = append(podShoudCreate, getPodName(index, minio))
 			continue
@@ -131,18 +131,18 @@ func (o *operator) syncPods(minio *crapiv1alpha1.Minio, allNodes []string) ([]*a
 	}
 	// create some pods if necessary
 	for _, podName := range podShoudCreate {
-        crIsUpdate = true
+		crIsUpdate = true
 		pickedNode := nodeNameForSchedulePod(podName, minio, nodeResPoll)
 		pod, err := o.kubeClientSet.CoreV1().Pods(minio.GetNamespace()).Create(context.TODO(), newPod(podName, minio, pickedNode), metav1.CreateOptions{})
 		if err != nil {
-			return nil,  crIsUpdate, err
+			return nil, crIsUpdate, err
 		}
 		if err := o.waitForPodReady(pod, 30*time.Second); err != nil {
-			return nil,  crIsUpdate, err
+			return nil, crIsUpdate, err
 		}
-        minio.Annotations[podName] = pickedNode
+		minio.Annotations[podName] = pickedNode
 	}
-	return nil,  crIsUpdate, nil
+	return nil, crIsUpdate, nil
 }
 
 // operator represent operator
@@ -237,12 +237,17 @@ func nodeNameForSchedulePod(podName string, minio *crapiv1alpha1.Minio, nodes ma
 	}
 	// new pod, has not create before
 	for level := 0; level < len(nodes); level++ {
-		if len(nodes[level]) == 0 {
+		resSize := len(nodes[level])
+		if resSize == 0 {
 			continue
 		}
-		resSize := len(nodes[level])
 		picked := nodes[level][resSize-1]
 		nodes[level+1] = append(nodes[level+1], picked)
+		if resSize == 1 {
+			nodes[level] = nodes[level][:0]
+		} else {
+			nodes[level] = nodes[level][:resSize-1]
+		}
 		return picked
 	}
 	return ""
