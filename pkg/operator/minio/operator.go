@@ -28,6 +28,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/klog/v2"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	crapiv1alpha1 "github.com/3Xpl0it3r/minio-operator/pkg/apis/miniooperator.3xpl0it3r.cn/v1alpha1"
 	crclientset "github.com/3Xpl0it3r/minio-operator/pkg/client/clientset/versioned"
@@ -67,21 +71,61 @@ func (o *operator) Reconcile(object interface{}) error {
 		utilruntime.HandleError(fmt.Errorf("failed to get the namespace and name from key: %v : %v", object, err))
 		return nil
 	}
+	var minioCopy *crapiv1alpha1.Minio
 
-	minio, err := o.minioLister.Minios(namespace).Get(name)
-	if err != nil {
+	if minio, err := o.minioLister.Minios(namespace).Get(name); err != nil {
 		if k8serror.IsNotFound(err) {
 			return nil
 		}
 		return fmt.Errorf("%s/%s get minio failed %v", namespace, name, err)
+	} else {
+		minioCopy = minio.DeepCopy()
 	}
+
 	// defaulter
-	crapiv1alpha1.MinioDefaulter(minio)
+	crapiv1alpha1.MinioDefaulter(minioCopy)
+
+	var nodes []string
+	// sync all nodes, this step is used to list all nodes , and upate minio. replicas according the number of nodes
+	// if only has one node in kubernetes cluster, then we set replicas of minio to 1
+	if err = o.syncNodes(minioCopy, nodes); err != nil {
+		return fmt.Errorf("%s/%s sync node failed, err %v", namespace, name, err)
+	}
+
+	// sync Service
+	if _, err = o.syncService(minioCopy); err != nil {
+		return fmt.Errorf("%s/%s sync service failed %s", namespace, name, err)
+	}
+	// sync pods
+	var shouldUpdate bool
+	_, shouldUpdate, err = o.syncPods(minioCopy, nodes)
+	if shouldUpdate {
+		preErr := err
+		if minioCopy, err = o.minioClient.MiniooperatorV1alpha1().Minios(namespace).Update(context.TODO(), minioCopy, metav1.UpdateOptions{}); err != nil {
+			err = errors.Wrapf(preErr, "update minio'annno failed: %v", err)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if err = o.syncMinioApplication(minioCopy, 60*time.Second); err != nil {
+		return fmt.Errorf("Timeout: check minio health %v", err)
+	}
+	minioCopy.Status.Inited = "Ok"
+	if _, err = o.minioClient.MiniooperatorV1alpha1().Minios(namespace).UpdateStatus(context.TODO(), minioCopy, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("Update minio apps status failed %v", err)
+	}
+
+	return nil
+
+}
+
+// operator represent operator
+func (o *operator) syncNodes(minio *crapiv1alpha1.Minio, nodes []string) error {
 	nodeListItems, err := o.nodeLister.List(labels.Everything())
 	if err != nil {
-		return fmt.Errorf("%s/%s list all node failed, %s", namespace, name, err)
+		return err
 	}
-	nodes := []string{}
 	for _, nodeItem := range nodeListItems {
 		for _, cond := range nodeItem.Status.Conditions {
 			switch cond.Type {
@@ -92,22 +136,10 @@ func (o *operator) Reconcile(object interface{}) error {
 			}
 		}
 	}
-	// if only has one node in kubernetes cluster, then we set replicas of minio to 1
 	if len(nodes) == 1 {
 		minio.Spec.Replicas = 1
 	}
-	// sync Service
-	if _, err := o.syncService(minio); err != nil {
-		return fmt.Errorf("%s/%s sync service failed %s", namespace, name, err)
-	}
-	// sync pods
-	_, shoudUpdate, err := o.syncPods(minio, nodes)
-	if shoudUpdate {
-		if _, e := o.minioClient.MiniooperatorV1alpha1().Minios(namespace).Update(context.TODO(), minio, metav1.UpdateOptions{}); e!= nil {
-            return errors.Wrapf(err, "update minio'anno failed: %v", e)
-        }
-	}
-    return err
+	return nil
 }
 
 // operator represent operator
@@ -131,12 +163,13 @@ func (o *operator) syncPods(minio *crapiv1alpha1.Minio, allNodes []string) ([]*a
 	}
 	// create some pods if necessary
 	for _, podName := range podShoudCreate {
-		crIsUpdate = true
 		pickedNode := nodeNameForSchedulePod(podName, minio, nodeResPoll)
 		pod, err := o.kubeClientSet.CoreV1().Pods(minio.GetNamespace()).Create(context.TODO(), newPod(podName, minio, pickedNode), metav1.CreateOptions{})
 		if err != nil {
 			return nil, crIsUpdate, err
 		}
+        // here means schedule is validate
+		crIsUpdate = true
 		if err := o.waitForPodReady(pod, 30*time.Second); err != nil {
 			return nil, crIsUpdate, err
 		}
@@ -158,39 +191,7 @@ func (o *operator) syncService(minio *crapiv1alpha1.Minio) (*apicorev1.Service, 
 	}
 	// service is not existed, then create new one
 	svc, err = o.kubeClientSet.CoreV1().Services(minio.GetNamespace()).Create(context.TODO(), newService(minio), metav1.CreateOptions{})
-
 	return svc, err
-}
-
-// operator represent operator
-func (o *operator) getAllReadyPodsAndRemoveUnReady(pods []*apicorev1.Pod) ([]*apicorev1.Pod, error) {
-	// if pods is not existed ,then return nil , error is set to nil for we should create some pods
-	if len(pods) == 0 {
-		return nil, nil
-	}
-	readyPods := []*apicorev1.Pod{}
-	unreadyPods := []*apicorev1.Pod{}
-	// get all Ready Pods
-	for _, pod := range pods {
-		for _, condition := range pod.Status.Conditions {
-			switch condition.Type {
-			case apicorev1.PodReady:
-				if condition.Status == apicorev1.ConditionTrue {
-					readyPods = append(readyPods, pod)
-				} else {
-					unreadyPods = append(unreadyPods, pod)
-				}
-			}
-		}
-	}
-	// delete all unready pods
-	for _, pod := range unreadyPods {
-		if err := o.kubeClientSet.CoreV1().Pods(pod.GetNamespace()).Delete(context.TODO(), pod.GetName(), metav1.DeleteOptions{}); err != nil {
-			return readyPods, err
-		}
-	}
-
-	return readyPods, nil
 }
 
 // wait for all pod ready
@@ -265,5 +266,48 @@ func updateNodeAllocatedInfo(nodes map[int][]string, node string) {
 				return
 			}
 		}
+	}
+}
+
+// operator represent operator
+func (o *operator) syncMinioApplication(minioobject *crapiv1alpha1.Minio, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
+	defer cancel()
+	healthCh := make(chan struct{}, 0)
+	go func() {
+		endpoint := fmt.Sprintf("%s.%s:9000", getInternalServiceName(minioobject), minioobject.GetNamespace())
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			minioClient, err := minio.New(endpoint, &minio.Options{
+				Creds:  credentials.NewStaticV4(minioobject.Spec.Credential.AccessKey, minioobject.Spec.Credential.SecretKey, ""),
+				Secure: false,
+			})
+			if err != nil {
+				time.Sleep(10 * time.Second)
+				continue
+			}
+			if !minioClient.IsOnline() {
+				continue
+			}
+			// if detacted minio is online , we should this is ok, event if create bucket failed
+			if strings.Compare(minioobject.Status.Inited, "Ok") != 0 {
+				for _, bucketName := range minioobject.Spec.Buckets {
+					if err := minioClient.MakeBucket(context.TODO(), bucketName, minio.MakeBucketOptions{Region: "cn-north-1", ObjectLocking: true}); err != nil {
+						klog.Errorf("create minio bucket failed %v", err)
+					}
+				}
+			}
+			healthCh <- struct{}{}
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		return errors.New("Timeout check minio health")
+	case <-healthCh:
+		return nil
 	}
 }

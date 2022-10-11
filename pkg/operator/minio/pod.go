@@ -39,24 +39,41 @@ func newPod(podName string, minio *crapiv1alpha1.Minio, nodeName string) *apicor
 			},
 			Containers: []apicorev1.Container{
 				{
-					Name:    minio.GetName(),
-					Image:   minio.Spec.Image,
-					Command: []string{},
+					Name:       minio.GetName(),
+					Image:      minio.Spec.Image,
+					Command:    []string{},
 					Args:       []string{"server", "--console-address=0.0.0.0:9001", serverEndPoint},
 					WorkingDir: "",
 					Ports:      []apicorev1.ContainerPort{},
-					Env:        []apicorev1.EnvVar{},
-					Resources:  apicorev1.ResourceRequirements{},
+					Env: []apicorev1.EnvVar{
+						{
+							Name:  "MINIO_ACCESS_KEY",
+							Value: minio.Spec.Credential.AccessKey,
+						},
+						{
+							Name:  "MINIO_SECRET_KEY",
+							Value: minio.Spec.Credential.SecretKey,
+						},
+						{
+							Name:  "MINIO_ROOT_USER",
+							Value: minio.Spec.Credential.AccessKey,
+						},
+						{
+							Name:  "MINIO_ROOT_PASSWORD",
+							Value: minio.Spec.Credential.SecretKey,
+						},
+					},
+					Resources: apicorev1.ResourceRequirements{},
 					VolumeMounts: []apicorev1.VolumeMount{
 						{
 							Name:      podName,
 							MountPath: "/data",
 						},
 					},
-					SecurityContext:          &apicorev1.SecurityContext{},
-					Stdin:                    false,
-					StdinOnce:                false,
-					TTY:                      false,
+					SecurityContext: &apicorev1.SecurityContext{},
+					Stdin:           false,
+					StdinOnce:       false,
+					TTY:             false,
 				},
 			},
 			RestartPolicy: apicorev1.RestartPolicyAlways,

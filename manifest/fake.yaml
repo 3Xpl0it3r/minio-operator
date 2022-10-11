@@ -5,4 +5,9 @@ metadata:
 spec:
   replicas: 4
   image: "registry.bizsaas.net/quay.io/minio"
-  hostpath: "/data/minio_test"
+  # image: "minio/minio"
+  hostpath: "/data/fake_minio"
+  buckets: ["btest1", "btest2", "btest3"]
+  credential:
+    access_key: "root123"
+    secret_key: "adminadmin"

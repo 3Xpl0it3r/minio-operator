@@ -21,7 +21,7 @@ import (
 
 var (
 	onlyOneSignalHandler = make(chan struct{})
-	shutdownSignals      = []os.Signal{os.Interrupt, syscall.SIGTERM}
+	shutdownSignals      = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGKILL}
 )
 
 // SetupSignalHandler registered for SIGTERM and SIGINT. A stop channel is returned

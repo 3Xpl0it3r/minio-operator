@@ -32,13 +32,22 @@ type Minio struct {
 
 // MinioSpec describes the specification of Minio applications using kubernetes as a cluster manager
 type MinioSpec struct {
-	Replicas int32  `json:"replicas"`
-	Image    string `json:"image"`
-	HostPath string `json:"hostpath"`
+	Replicas   int32      `json:"replicas"`
+	Image      string     `json:"image"`
+	HostPath   string     `json:"hostpath"`
+	Buckets    []string   `json:"buckets"`
+	Credential Credential `json:"credential"`
+}
+
+// Credential represent credential
+type Credential struct {
+	AccessKey    string `json:"access_key"`
+	SecretKey string `json:"secret_key"`
 }
 
 // MinioStatus describes the current status of Minio applications
 type MinioStatus struct {
+	Inited string `json:"inited"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

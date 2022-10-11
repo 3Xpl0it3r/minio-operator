@@ -46,11 +46,27 @@ func NewMinioResourceDefine() *extensionapiv1.CustomResourceDefinition {
 										"replicas": {Type: jsonSchemePropsTypeAsInteger},
 										"image":    {Type: jsonSchemePropsTypeAsString},
 										"hostpath": {Type: jsonSchemePropsTypeAsString},
+										"credential": {
+											Type: jsonSchemePropsTypeAsObject,
+											Properties: map[string]extensionapiv1.JSONSchemaProps{
+												"access_key": {Type: jsonSchemePropsTypeAsString},
+												"secret_key": {Type: jsonSchemePropsTypeAsString},
+											},
+										},
+										"buckets": {
+											Type: jsonSchemePropsTypeAsArray,
+											Items: &extensionapiv1.JSONSchemaPropsOrArray{
+												Schema: &extensionapiv1.JSONSchemaProps{
+													Type: jsonSchemePropsTypeAsString,
+												},
+											},
+										},
 									},
 								},
 								"status": {
 									Type: jsonSchemePropsTypeAsObject,
 									Properties: map[string]extensionapiv1.JSONSchemaProps{
+										"inited": {Type: jsonSchemePropsTypeAsString},
 									},
 								},
 							},
