@@ -15,6 +15,8 @@ package main
 
 import (
 	"flag"
+	"github.com/3Xpl0it3r/minio-operator/cmd/miniooperator/app"
+
 	"k8s.io/component-base/logs"
 )
 
@@ -22,7 +24,7 @@ func main() {
 	logs.InitLogs()
 	defer logs.FlushLogs()
 
-	cmd := NewStartCommand(SetupSignalHandler())
+	cmd := app.NewStartCommand(app.SetupSignalHandler())
 	cmd.Flags().AddGoFlagSet(flag.CommandLine)
 	if err := cmd.Execute(); err != nil {
 		panic(err)

@@ -64,3 +64,6 @@ func getPodNamePrefix( minio *crapiv1alpha1.Minio) string {
 func getInternalServiceName(minio *crapiv1alpha1.Minio) string {
 	return minio.GetName() + "-internal"
 }
+func getExternalServiceName(minio *crapiv1alpha1.Minio) string {
+	return minio.GetName() + "-service"
+}

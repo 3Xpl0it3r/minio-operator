@@ -10,7 +10,7 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 */
-package main
+package app
 
 import (
 	"flag"
@@ -19,6 +19,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	k8serror "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/3Xpl0it3r/minio-operator/pkg/crd"
 
@@ -90,24 +92,27 @@ func runCommand(o *options.Options, signalCh <-chan struct{}) error {
 	var stopCh = make(chan struct{})
 	restConfig, err := buildKubeConfig("", "")
 	if err != nil {
-		return err
+		return fmt.Errorf("build kubeConfig failed: %v", err)
 	}
 	extClientSet, err := extensionsclientset.NewForConfig(restConfig)
 	if err != nil {
-		return err
+		return fmt.Errorf("builde extclient failed: %v", err)
 	}
 	if err := crd.InstallCustomResourceDefineToApiServer(extClientSet); err != nil {
-		return err
+		if !k8serror.IsAlreadyExists(err) {
+			return fmt.Errorf("Install crd failed: %v", err)
+		}
 	}
-	defer crd.UnInstallCustomResourceDefineToApiServer(extClientSet)
+	// should not delete crd
+	// defer crd.UnInstallCustomResourceDefineToApiServer(extClientSet)
 
 	kubeClientSet, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
-		return err
+		return fmt.Errorf("build kubeClientSet faild: %v", err)
 	}
 	crClientSet, err := crclientset.NewForConfig(restConfig)
 	if err != nil {
-		return err
+		return fmt.Errorf("build crClientSet failed: %v", err)
 	}
 	crInformers := buildCustomResourceInformerFactory(crClientSet)
 	kubeInformers := buildKubeStandardResourceInformerFactory(kubeClientSet)
@@ -118,7 +123,7 @@ func runCommand(o *options.Options, signalCh <-chan struct{}) error {
 	kubeInformers.Start(stopCh)
 
 	if err := runController1(stopCh, minioController); err != nil {
-		return err
+		return fmt.Errorf("run controller failed: %v", err)
 	}
 
 	select {
@@ -131,13 +136,12 @@ func runCommand(o *options.Options, signalCh <-chan struct{}) error {
 	return nil
 }
 
-func runController1(stopCh <- chan struct{}, controller controller.Controller) error {
+func runController1(stopCh <-chan struct{}, controller controller.Controller) error {
 	if err := controller.Start(1, stopCh); err != nil {
 		return err
 	}
 	return nil
 }
-
 
 func serve(srv *http.Server, listener net.Listener) func() error {
 	return func() error {
@@ -178,7 +182,7 @@ func buildKubeConfig(masterUrl, kubeConfig string) (*rest.Config, error) {
 func buildCustomResourceInformerFactory(crClient crclientset.Interface) crinformers.SharedInformerFactory {
 	var factoryOpts []crinformers.SharedInformerOption
 	factoryOpts = append(factoryOpts, crinformers.WithNamespace(apicorev1.NamespaceAll))
-	factoryOpts = append(factoryOpts, crinformers.WithTweakListOptions(func(listOptions *v1.ListOptions) { }))
+	factoryOpts = append(factoryOpts, crinformers.WithTweakListOptions(func(listOptions *v1.ListOptions) {}))
 	return crinformers.NewSharedInformerFactoryWithOptions(crClient, 5*time.Second, factoryOpts...)
 }
 
@@ -186,6 +190,6 @@ func buildCustomResourceInformerFactory(crClient crclientset.Interface) crinform
 func buildKubeStandardResourceInformerFactory(kubeClient kubernetes.Interface) informers.SharedInformerFactory {
 	var factoryOpts []informers.SharedInformerOption
 	factoryOpts = append(factoryOpts, informers.WithNamespace(apicorev1.NamespaceAll))
-	factoryOpts = append(factoryOpts, informers.WithTweakListOptions(func(listOptions *v1.ListOptions) { }))
+	factoryOpts = append(factoryOpts, informers.WithTweakListOptions(func(listOptions *v1.ListOptions) {}))
 	return informers.NewSharedInformerFactoryWithOptions(kubeClient, 5*time.Second, factoryOpts...)
 }

@@ -6,8 +6,37 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
+func newExternalService(minio *crapiv1alpha1.Minio) *apicorev1.Service {
+	svc := &apicorev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            getExternalServiceName(minio),
+			Namespace:       minio.GetNamespace(),
+			Labels:          getResourceLabels(minio),
+			Annotations:     getResourceAnnotations(minio, ""),
+			OwnerReferences: getResourceOwnerReference(minio),
+		},
+		Spec: apicorev1.ServiceSpec{
+			Ports: []apicorev1.ServicePort{
+				{
+					Name:       "api",
+					Port:       9000,
+					TargetPort: intstr.IntOrString{IntVal: 9000},
+				},
+				{
+					Name:       "http",
+					Port:       9001,
+					TargetPort: intstr.IntOrString{IntVal: 9001},
+				},
+			},
+			Selector:   getResourceLabels(minio),
+			Type:       apicorev1.ServiceTypeClusterIP,
+		},
+		Status: apicorev1.ServiceStatus{},
+	}
+	return svc
+}
 
-func newService(minio *crapiv1alpha1.Minio) *apicorev1.Service {
+func newInternalService(minio *crapiv1alpha1.Minio) *apicorev1.Service {
 	svc := &apicorev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            getInternalServiceName(minio),
