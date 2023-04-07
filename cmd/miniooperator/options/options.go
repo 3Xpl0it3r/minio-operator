@@ -48,10 +48,16 @@ func (o *Options) Complete() error {
 func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.ListenAddress, "web.listen-addr", ":8080", "Address on which to expose metrics and web interfaces")
 	// todo write your code here
+    
 }
 
 func (o *Options) NamedFlagSets() (fs flag.NamedFlagSets) {
 	o.AddFlags(fs.FlagSet("minio-operator"))
-	// other options addFlags
-	return
+
+    // other Addflags
+    // o.otherConfig.AddFlahs(fs.FlagSet(""xxxxx))
+
+
+
+	return fs
 }

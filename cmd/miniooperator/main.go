@@ -15,12 +15,15 @@ package main
 
 import (
 	"flag"
+	"fmt"
+
 	"github.com/3Xpl0it3r/minio-operator/cmd/miniooperator/app"
 
 	"k8s.io/component-base/logs"
 )
 
 func main() {
+	fmt.Println("hello world")
 	logs.InitLogs()
 	defer logs.FlushLogs()
 

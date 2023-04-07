@@ -6,6 +6,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
+
 func newExternalService(minio *crapiv1alpha1.Minio) *apicorev1.Service {
 	svc := &apicorev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -19,17 +20,17 @@ func newExternalService(minio *crapiv1alpha1.Minio) *apicorev1.Service {
 			Ports: []apicorev1.ServicePort{
 				{
 					Name:       "api",
-					Port:       9000,
-					TargetPort: intstr.IntOrString{IntVal: 9000},
+					Port:       minio.Spec.Port.ApiPort,
+					TargetPort: intstr.IntOrString{IntVal: minio.Spec.Port.ApiPort},
 				},
 				{
 					Name:       "http",
-					Port:       9001,
-					TargetPort: intstr.IntOrString{IntVal: 9001},
+					Port:       minio.Spec.Port.HttpPort,
+					TargetPort: intstr.IntOrString{IntVal: minio.Spec.Port.HttpPort},
 				},
 			},
-			Selector:   getResourceLabels(minio),
-			Type:       apicorev1.ServiceTypeClusterIP,
+			Selector: getResourceLabels(minio),
+			Type:     apicorev1.ServiceTypeNodePort,
 		},
 		Status: apicorev1.ServiceStatus{},
 	}
@@ -49,13 +50,13 @@ func newInternalService(minio *crapiv1alpha1.Minio) *apicorev1.Service {
 			Ports: []apicorev1.ServicePort{
 				{
 					Name:       "api",
-					Port:       9000,
-					TargetPort: intstr.IntOrString{IntVal: 9000},
+					Port:       minio.Spec.Port.ApiPort,
+					TargetPort: intstr.IntOrString{IntVal: minio.Spec.Port.ApiPort},
 				},
 				{
 					Name:       "http",
-					Port:       9001,
-					TargetPort: intstr.IntOrString{IntVal: 9001},
+					Port:       minio.Spec.Port.HttpPort,
+					TargetPort: intstr.IntOrString{IntVal: minio.Spec.Port.HttpPort},
 				},
 			},
 			Selector:   getResourceLabels(minio),

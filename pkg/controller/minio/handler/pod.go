@@ -62,7 +62,6 @@ func (podeventhandler *podEventHandler) OnDelete(obj interface{}) {
 		return
 	}
 	podeventhandler.enqueueMinioForPodUpdate(deletedPod)
-
 }
 
 // podEventHandler represent podeventhandler

@@ -32,16 +32,23 @@ type Minio struct {
 
 // MinioSpec describes the specification of Minio applications using kubernetes as a cluster manager
 type MinioSpec struct {
-	Replicas   int32      `json:"replicas"`
-	Image      string     `json:"image"`
-	HostPath   string     `json:"hostpath"`
-	Buckets    []string   `json:"buckets"`
-	Credential Credential `json:"credential"`
+	Replicas   int32       `json:"replicas"`
+	Image      string      `json:"image"`
+	HostPath   string      `json:"hostpath"`
+	Buckets    []string    `json:"buckets"`
+	Credential Credential  `json:"credential"`
+	Port       ServicePort `json:"port"`
+}
+
+type ServicePort struct {
+	HttpPort int32 `json:"http_port"`
+	ApiPort  int32 `json:"apiport"`
+	NodePort int32 `json:"nodeport"`
 }
 
 // Credential represent credential
 type Credential struct {
-	AccessKey    string `json:"access_key"`
+	AccessKey string `json:"access_key"`
 	SecretKey string `json:"secret_key"`
 }
 

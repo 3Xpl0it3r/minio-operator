@@ -16,7 +16,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -218,43 +217,34 @@ func (o *operator) syncExternalService(minio *crapiv1alpha1.Minio) (*apicorev1.S
 func (o *operator) waitForPodReady(pod *apicorev1.Pod, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
 	defer cancel()
-	ready := make(chan struct{}, 0)
-	stopCh := make(chan struct{}, 0)
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-stopCh:
-				return
-			default:
-				time.Sleep(1 * time.Second)
-			}
-			latestPod, err := o.podLister.Pods(pod.GetNamespace()).Get(pod.GetName())
-			if err != nil {
-				continue
-			}
-			for _, condition := range latestPod.Status.Conditions {
-				switch condition.Type {
-				case apicorev1.PodReady:
-					if condition.Status == apicorev1.ConditionTrue {
-						ready <- struct{}{}
-						return
-					}
+
+	var (
+		latestPod *apicorev1.Pod
+		err       error
+	)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			time.Sleep(1 * time.Second)
+		}
+
+		if latestPod, err = o.podLister.Pods(pod.GetNamespace()).Get(pod.GetName()); err != nil {
+			continue
+		}
+
+		for _, condition := range latestPod.Status.Conditions {
+			switch condition.Type {
+			case apicorev1.PodReady:
+				if condition.Status == apicorev1.ConditionTrue {
+					return nil
 				}
 			}
 		}
-	}()
-	var err error = nil
-	select {
-	case <-ctx.Done():
-		stopCh <- struct{}{}
-		err = fmt.Errorf("Timeout wait for pod %s ready", pod.GetName())
-	case <-ready:
 	}
-	wg.Wait()
-	return err
+
 }
 
 func nodeNameForSchedulePod(podName string, minio *crapiv1alpha1.Minio, nodes map[int][]string) string {
@@ -302,58 +292,52 @@ func updateNodeAllocatedInfo(nodes map[int][]string, node string) {
 func (o *operator) syncMinioApplication(minioobject *crapiv1alpha1.Minio, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
 	defer cancel()
-	healthCh := make(chan struct{}, 0)
-	stopCh := make(chan struct{}, 0)
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		endpoint := fmt.Sprintf("%s.%s:9000", getExternalServiceName(minioobject), minioobject.GetNamespace())
-		for {
-			select {
-			case <-stopCh:
-				return
-			default:
-				time.Sleep(10 * time.Second)
-			}
-			minioClient, err := minio.New(endpoint, &minio.Options{
-				Creds:  credentials.NewStaticV4(minioobject.Spec.Credential.AccessKey, minioobject.Spec.Credential.SecretKey, ""),
-				Secure: false,
-			})
-			if err != nil {
-				continue
-			}
-			if !minioClient.IsOnline() {
-				continue
-			}
-			// 由于minio没有提供检测server是不是已经初始化完的api的, 因此这里通过创建一个testbucket来确认minio是不是已经初始化完成了
-			createOpt := minio.MakeBucketOptions{Region: "cn-north-1", ObjectLocking: true}
-			_, err = minioClient.GetBucketLocation(context.Background(), "testbucket")
-			if err != nil {
-				if err := minioClient.MakeBucket(context.TODO(), "testbucket", createOpt); err != nil {
-					klog.Errorf("get && create testbucket failed: %v", err)
-					continue
-				}
-			}
-			// if detacted minio is online , we should this is ok, event if create bucket failed
-			if strings.Compare(minioobject.Status.Inited, "Ok") != 0 {
-				for _, bucketName := range minioobject.Spec.Buckets {
-					if err := minioClient.MakeBucket(context.TODO(), bucketName, createOpt); err != nil {
-						klog.Errorf("create minio bucket failed %v", err)
-					}
-				}
-			}
-			healthCh <- struct{}{}
-			return
+
+	var (
+		minioClient *minio.Client
+		err         error
+	)
+
+	var (
+		endpoint  = fmt.Sprintf("%s.%s:9000", getExternalServiceName(minioobject), minioobject.GetNamespace())
+		createOpt = minio.MakeBucketOptions{Region: "cn-north-1", ObjectLocking: true}
+	)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			time.Sleep(10 * time.Second)
 		}
-	}()
-	var err error = nil
-	select {
-	case <-ctx.Done():
-		stopCh <- struct{}{}
-		err = errors.New("Timeout check minio health")
-	case <-healthCh:
+
+		if minioClient, err = minio.New(
+			endpoint,
+			&minio.Options{
+				Creds:  credentials.NewStaticV4(minioobject.Spec.Credential.AccessKey, minioobject.Spec.Credential.SecretKey, ""),
+				Secure: false},
+		); err != nil {
+			continue
+		}
+
+		if !minioClient.IsOnline() {
+			continue
+		}
+		// 由于minio没有提供检测server是不是已经初始化完的api的, 因此这里通过创建一个testbucket来确认minio是不是已经初始化完成了
+		_, err = minioClient.GetBucketLocation(context.Background(), "testbucket")
+		if err != nil {
+			if err := minioClient.MakeBucket(context.TODO(), "testbucket", createOpt); err != nil {
+				klog.Errorf("get && create testbucket failed: %v", err)
+				continue
+			}
+		}
+		// if detacted minio is online , we should this is ok, event if create bucket failed
+		if strings.Compare(minioobject.Status.Inited, "Ok") != 0 {
+			for _, bucketName := range minioobject.Spec.Buckets {
+				if err := minioClient.MakeBucket(context.TODO(), bucketName, createOpt); err != nil {
+					klog.Errorf("create minio bucket failed %v", err)
+				}
+			}
+		}
 	}
-	wg.Wait()
-	return err
 }

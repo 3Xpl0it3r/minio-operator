@@ -122,7 +122,7 @@ func runCommand(o *options.Options, signalCh <-chan struct{}) error {
 	crInformers.Start(stopCh)
 	kubeInformers.Start(stopCh)
 
-	if err := runController1(stopCh, minioController); err != nil {
+	if err := runController(stopCh, minioController); err != nil {
 		return fmt.Errorf("run controller failed: %v", err)
 	}
 
@@ -131,12 +131,14 @@ func runCommand(o *options.Options, signalCh <-chan struct{}) error {
 		klog.Infof("exited")
 		close(stopCh)
 	case <-stopCh:
-		minioController.Stop()
 	}
+
+	minioController.Stop()
+
 	return nil
 }
 
-func runController1(stopCh <-chan struct{}, controller controller.Controller) error {
+func runController(stopCh <-chan struct{}, controller controller.Controller) error {
 	if err := controller.Start(1, stopCh); err != nil {
 		return err
 	}
@@ -162,12 +164,12 @@ func serveTLS(srv *http.Server, listener net.Listener) func() error {
 }
 
 // buildKubeConfig build rest.Config from the following ways
-// 1: path of kube_config 2: KUBECONFIG environment 3. ~/.kube/config, as kubeconfig may not in /.kube/
 func buildKubeConfig(masterUrl, kubeConfig string) (*rest.Config, error) {
 	cfgLoadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	cfgLoadingRules.DefaultClientConfig = &clientcmd.DefaultClientConfig
 	cfgLoadingRules.ExplicitPath = kubeConfig
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(cfgLoadingRules, &clientcmd.ConfigOverrides{})
+    
 	config, err := clientConfig.ClientConfig()
 	if err != nil {
 		return nil, err
