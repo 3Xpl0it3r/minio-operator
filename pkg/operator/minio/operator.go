@@ -112,7 +112,7 @@ func (o *operator) Reconcile(object interface{}) error {
 		return err
 	}
 	if err = o.syncMinioApplication(minioCopy, 60*time.Second); err != nil {
-		return fmt.Errorf("Timeout: check minio health %v", err)
+		return fmt.Errorf("Sync minio application failed: %v", err)
 	}
 	minioCopy.Status.Inited = "Ok"
 	if _, err = o.minioClient.MiniooperatorV1alpha1().Minios(namespace).UpdateStatus(context.TODO(), minioCopy, metav1.UpdateOptions{}); err != nil {
@@ -303,6 +303,11 @@ func (o *operator) syncMinioApplication(minioobject *crapiv1alpha1.Minio, timeou
 		createOpt = minio.MakeBucketOptions{Region: "cn-north-1", ObjectLocking: true}
 	)
 
+	// for not in erasure codeed mode, ObjectLocking feature is not supported
+	if minioobject.Spec.Replicas == 1 {
+		createOpt.ObjectLocking = false
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -327,7 +332,7 @@ func (o *operator) syncMinioApplication(minioobject *crapiv1alpha1.Minio, timeou
 		_, err = minioClient.GetBucketLocation(context.Background(), "testbucket")
 		if err != nil {
 			if err := minioClient.MakeBucket(context.TODO(), "testbucket", createOpt); err != nil {
-				klog.Errorf("get && create testbucket failed: %v", err)
+				klog.Errorf("get || create testbucket failed: %v", err)
 				continue
 			}
 		}

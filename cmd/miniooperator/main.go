@@ -23,7 +23,6 @@ import (
 )
 
 func main() {
-	fmt.Println("hello world")
 	logs.InitLogs()
 	defer logs.FlushLogs()
 
